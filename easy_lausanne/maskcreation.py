@@ -220,6 +220,11 @@ def create_roi(subject_id):
     temp.sort(reverse=True)
     values, parkeys = zip(*temp)
     roisMax = np.zeros( (256, 256, 256), dtype=np.int16 ) # numpy.ndarray
+
+    #Decompress orig.mgz so freesurfer tool doesn't have to do it each time in the loop
+    mri_cmd = 'mri_convert -i "%s/mri/orig.mgz" -o "%s/mri/tmp_orig.mgh"' % (fs_dir, fs_dir)
+    runCmd( mri_cmd, log )
+
     for i,parkey in enumerate(parkeys):
         parval = lausanne_spec[parkey]
 
@@ -261,12 +266,12 @@ def create_roi(subject_id):
                 fname = '%s.%s.label' % (hemi, brv['dn_fsname'])
 
                 # execute fs mri_label2vol to generate volume roi from the label file
-                # store it in temporary file to be overwritten for each region (slow!)
+                # store it in temporary file (uncompressed) to be overwritten for each region (slow!)
                 mri_cmd = 'mri_label2vol --label "%s" --temp "%s" --o "%s" --identity' % (op.join(labelpath, fname),
-                        op.join(fs_dir, 'mri', 'orig.mgz'), op.join(labelpath, 'tmp.nii.gz'))
+                        op.join(fs_dir, 'mri', 'tmp_orig.mgh'), op.join(labelpath, 'tmp.nii'))
                 runCmd( mri_cmd, log )
 
-                tmp = ni.load(op.join(labelpath, 'tmp.nii.gz'))
+                tmp = ni.load(op.join(labelpath, 'tmp.nii'))
                 tmpd = tmp.get_data()
 
                 # find voxel and set them to intensity value in rois
@@ -342,6 +347,15 @@ def create_roi(subject_id):
         log.info("Save output image to %s" % out_roi)
         img = ni.Nifti1Image(newrois, aseg.get_affine(), hdr2)
         ni.save(img, out_roi)
+        
+        # delete tmp.nii after loop is complete (large since not compressed)
+        for hemi in ['lh','rh']:
+            mri_cmd = 'rm "%s"' % op.join(fs_dir, 'label', parval['fs_label_subdir_name'] % hemi, 'tmp.nii')
+            runCmd( mri_cmd, log )
+
+    # delete uncompressed orig.mgh after entire process complete
+    mri_cmd = 'rm "%s" "%s"' % op.join(fs_dir, 'mri', 'tmp_orig.mgh')
+    runCmd( mri_cmd, log )
 
     log.info("[ DONE ]")  
 
